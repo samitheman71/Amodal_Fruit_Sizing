@@ -86,6 +86,72 @@ Note: To run the AmodalFruitSize_inference.py code the reader can use the images
 python AmodalFruitSize_inference.py  --experiment_name 'test_set' --dataset_path "./datasets/" --test_name 'data' --output_dir='./output/' --weights  './output/trial01/model_0002999.pth'  --nms_thr 0.1  --conf 0 --split='test'
 ```
 
+---
+
+## End-to-End Orchard Tracking & Sizing Pipeline
+
+This repository includes an end-to-end pipeline to preprocess orchard video sequences, perform amodal instance segmentation, track individual fruits across camera sweeps with BoT-SORT, and export physical fruit size measurements.
+
+### 1. Preprocessing (Optional Color Enhancement)
+Enhance target fruit regions using selective HSV color space masking:
+```bash
+python preprocess_apples.py \
+    --input_dir datasets/data/my_new_images/images \
+    --output_dir datasets/data/my_new_images/images_preprocessed \
+    --sat_factor 1.6 \
+    --val_factor 1.3
+```
+
+### 2. Custom Dataset Preparation & Fine-Tuning
+To prepare custom annotations exported from the VGG Image Annotator (VIA):
+```bash
+python create_custom_dataset.py \
+    --base_dir datasets/data/my_new_images \
+    --images_dir datasets/data/my_new_images/images
+```
+
+Fine-tune the model with data augmentation (random scale cropping):
+```bash
+python Train_Custom.py \
+    --num_iterations 1000 \
+    --batch_size 2 \
+    --learning_rate 0.005 \
+    --dataset_path ./datasets/data/my_new_images/ \
+    --weights ./output/trial01/model_0002999.pth \
+    --output_dir ./output/finetuned/
+```
+
+### 3. Inference and Dual-Mode Fruit Sizing
+Run inference using either sensor depth or reference distance estimation:
+
+* **Mode A: Sensor Depth (RGB-D):** If aligned `.npy` depth files exist in `depth_maps/`, depth is directly sampled from valid modal mask pixels.
+* **Mode B: Reference Distance (RGB Monocular):** If depth sensor maps are unavailable, set `--assumed_distance` to the estimated camera-to-canopy distance (e.g. `0.8` meters):
+
+```bash
+python AmodalFruitSize_inference.py \
+    --dataset_path ./datasets/data/ \
+    --test_name my_new_images \
+    --img_folder images_preprocessed \
+    --weights ./output/finetuned/model_final.pth \
+    --assumed_distance 0.8
+```
+
+### 4. Multi-Object Tracking & Sizing Report (BoT-SORT)
+Track individual fruits across camera sweeps, eliminate occlusion-related identity switches, and export aggregated measurements:
+```bash
+python botsort_apples.py \
+    --txt_dir output/demo/my_new_images/txt_per_image \
+    --img_dir datasets/data/my_new_images/images_preprocessed \
+    --out_dir output/demo/my_new_images/botsort_tracking \
+    --track_buffer 120 \
+    --min_hits 5
+```
+
+**Outputs:**
+* `tracking_output.mp4`: Annotated video with confirmed track IDs and estimated fruit diameters in millimeters.
+* `apple_sizes_summary.csv`: Summary report recording each confirmed fruit's tracking duration, median diameter (mm), and estimated volume ($cm^3$).
+
+
 ## Results
 Since the percentage of visibility can be automatically estimated by using modal and amodal masks, we evaluated the sizing performance at different fruit visibility levels:
 

@@ -1,6 +1,3 @@
-# You may need to restart your runtime prior to this, to let your installation take effect
-# Some basic setup:
-# Setup detectron2 logger
 import detectron2
 from detectron2.utils.logger import setup_logger
 setup_logger()
@@ -36,9 +33,12 @@ def parse_args():
     parser.add_argument('--dataset_path',dest='dataset_path',default="./datasets/data/")
     parser.add_argument('--split', dest='split_name', default="", help='use this to perform inference only on one of the training/val/test splits. The default is to process all subfolders of ${dataset_path}/images')
     parser.add_argument('--output_dir',dest='output_dir',default='./output/',help='name of the directory where to save the output results')
-    parser.add_argument('--weights',dest='weights',default='./output/trial01/model_0002999.pth')
+    parser.add_argument('--weights',dest='weights',default='./output/finetuned/model_final.pth')
     parser.add_argument('--nms_thr',dest='nms_thr',default=0.1)
     parser.add_argument('--conf',dest='conf',default=0)
+    parser.add_argument("--img_folder", type=str, default="images_preprocessed", help="Target subfolder containing the images")
+    parser.add_argument("--assumed_distance", type=float, default=0.8, help="Assumed camera-to-fruit distance in meters (default: 0.8m) when depth maps are not available")
+    parser.add_argument("--ref_apple_diameter", type=float, default=75.0, help="Reference fruit diameter in mm for scaling (default: 75.0mm)")
     args = parser.parse_args()
     return args
 
@@ -91,23 +91,53 @@ if __name__ == '__main__':
     for row in csv.reader(f):
         focal_length_dict[row[0]]=float(row[1])
 
-    for r, d, f in os.walk(os.path.join(dataset_path,'images')):
-        print (os.path.join(dataset_path,'images', split), d, r)
+    for r, d, f in os.walk(os.path.join(dataset_path, args.img_folder)):
+        print (os.path.join(dataset_path, args.img_folder, split), d, r)
  
-        if split != "" and r != os.path.join(dataset_path,'images', split):
+        if split != "" and r != os.path.join(dataset_path, args.img_folder, split):
             continue
         for file in f:
-            if file.endswith(".png") or file.endswith(".jpg") or file.endswith(".JPG"):
+            if file.lower().endswith(('.png', '.jpg', '.jpeg')):
                 print(os.path.join(r, file))
                 img = cv2.imread(os.path.join(r, file))
-                depth_map = np.load(os.path.join(dataset_path,'depth_maps',file[:-4]+'.npy'))
+                
+                if "_color." in file:
+                    base_name = file.rsplit("_color.", 1)[0]
+                else:
+                    base_name = file.rsplit(".", 1)[0]
+                    
+                depth_file_name = base_name + "_depth.npy"
+                depth_path = os.path.join(dataset_path, 'depth_maps', depth_file_name)
+                
+                using_real_depth = False
+                if os.path.exists(depth_path):
+                    depth_map = np.load(depth_path)
+                    if np.any(depth_map > 0):
+                        using_real_depth = True
+                
+                if not using_real_depth:
+                    # Fall back to reference distance estimation when sensor depth map is unavailable
+                    depth_map = np.zeros(img.shape[:2], dtype=np.float32)
+                    assumed_dist = float(args.assumed_distance)
+                else:
+                    assumed_dist = 0.0
+
                 outputs = predictor(img)
                 predictions = outputs["instances"].to("cpu")
-                diameters, occlusions = utils_diameter.amodal_diameter_estimation(depth_map, predictions, focal_length_dict[file])
+                focal = focal_length_dict.get(file, 420.36)
+                diameters, occlusions = utils_diameter.amodal_diameter_estimation(depth_map, predictions, focal, assumed_depth=assumed_dist)
                 scores = predictions.scores.tolist()
                 pred_instances = np.asarray(predictions.pred_visible_masks)
                 pred_amodals = np.asarray(predictions.pred_masks)
                 pred_boxs = predictions.pred_boxes.tensor.numpy()
+                
+                # Save instance segmentation visualization
+                vis_dir = os.path.join(output_dir, 'visualizations')
+                if not os.path.exists(vis_dir):
+                    os.makedirs(vis_dir)
+                v = Visualizer(img[:, :, ::-1], metadata=dataset_metadata, scale=1.0)
+                out = v.draw_instance_predictions(predictions)
+                cv2.imwrite(os.path.join(vis_dir, base_name + '_visualized.jpg'), out.get_image()[:, :, ::-1])
                 if os.path.exists(os.path.join(output_per_image_dir,file[:-4]+'.txt')):
                     os.remove(os.path.join(output_per_image_dir,file[:-4]+'.txt'))
 
@@ -123,16 +153,20 @@ if __name__ == '__main__':
                         dict_info_txt['diam'] = str(diameters[j])
                         dict_info_txt['occ'] = str(occlusions[j])
 
+                        apple_radius = diameters[j] / 2.0
+                        apple_volume = (4.0 / 3.0) * np.pi * (apple_radius ** 3)
+                        dict_info_txt['volume'] = str(apple_volume)
+
                         with open(os.path.join(output_per_image_dir,file[:-4]+'.txt'), 'a+') as f:
                             f.write("\n")
                             f.write(
-                                dict_info_txt['diam'] + '|' + dict_info_txt['occ'] + '|' + dict_info_txt['conf'] + '|' +
+                                dict_info_txt['diam'] + '|' + dict_info_txt['volume'] + '|' + dict_info_txt['occ'] + '|' + dict_info_txt['conf'] + '|' +
                                 dict_info_txt['instance_all_points_x'] + '|' + dict_info_txt['instance_all_points_y'] + '|' +
                                 dict_info_txt['amodal_all_points_x'] + '|' + dict_info_txt['amodal_all_points_y'])
 
                         with open(os.path.join(output_dir,'diameter_results.txt'), 'a+') as f:
                             f.write("\n")
-                            f.write(file + '|' + dict_info_txt['diam'] + '|' + dict_info_txt['occ'] + '|' + dict_info_txt['conf'])
+                            f.write(file + '|' + dict_info_txt['diam'] + '|' + dict_info_txt['volume'] + '|' + dict_info_txt['occ'] + '|' + dict_info_txt['conf'])
 
 
 

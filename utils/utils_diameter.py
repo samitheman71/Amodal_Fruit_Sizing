@@ -7,8 +7,8 @@ import cv2
 
 
 
-def amodal_diameter_estimation(depth_map, predictions,focal_length):
-    m = 2  # parameter set to remove outliers. The outlier removal will be more restrective as m is smaller
+def amodal_diameter_estimation(depth_map, predictions, focal_length, assumed_depth=0.0):
+    m = 2  # parameter set to remove outliers. The outlier removal will be more restrictive as m is smaller
     pred_instances = np.asarray(predictions.pred_visible_masks)
     pred_amodals = np.asarray(predictions.pred_masks)
     diameters = []
@@ -18,14 +18,27 @@ def amodal_diameter_estimation(depth_map, predictions,focal_length):
         mask_am = pred_amodals[j]
         depth_in = depth_map[np.logical_and(depth_map > 0, mask_in)]
         depth_in_no_outliers = depth_in[abs(depth_in - np.mean(depth_in)) < m * np.std(depth_in)] # outlier removal
-        if len(depth_in_no_outliers)>=1:
-            apple_mean_depth = depth_in_no_outliers.mean()
-            apple_px_area = mask_am.sum()
-            k = np.sqrt(4/(np.pi*np.square(focal_length)))*1000
-            diameters.append(k*apple_mean_depth * np.sqrt(apple_px_area))
+        
+        # Use measured sensor depth if valid depth values exist; otherwise fallback to reference depth
+        if len(depth_in_no_outliers) >= 1:
+            apple_mean_depth = float(depth_in_no_outliers.mean())
+        elif assumed_depth > 0:
+            apple_mean_depth = float(assumed_depth)
         else:
-            diameters.append(0)
-        occlusions.append(1-mask_in.sum()/mask_am.sum())
+            apple_mean_depth = 0.0
+
+        if apple_mean_depth > 0 and mask_am.sum() > 0:
+            apple_px_area = mask_am.sum()
+            k = np.sqrt(4 / (np.pi * np.square(focal_length))) * 1000
+            diameters.append(float(k * apple_mean_depth * np.sqrt(apple_px_area)))
+        else:
+            diameters.append(0.0)
+            
+        if mask_am.sum() > 0:
+            occlusions.append(float(1.0 - mask_in.sum() / mask_am.sum()))
+        else:
+            occlusions.append(0.0)
+            
     return diameters, occlusions
 
 

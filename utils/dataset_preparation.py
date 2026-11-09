@@ -43,7 +43,8 @@ def get_AmodalFruitSize_dicts(root_dir, split):
         name = name.split('.')[0]
 
         # Load amodal info
-        v_a = imgs_anns_amod[name_amodal]
+        clean_name = os.path.basename(name_amodal.replace('\\', '/'))
+        v_a = imgs_anns_amod[clean_name]
 
         record["file_name"] = filename
         record["depth_file"] = os.path.join(depth_path, name + '.npy')

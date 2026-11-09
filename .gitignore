@@ -1,5 +1,56 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
-*~
+*$py.class
 *.so
+
+# C extensions and build artifacts
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+amodal/
+ENV/
+env.bak/
+venv.bak/
+
+# PyTorch / Deep Learning model weights
+*.pth
+*.pt
+*.bin
+*.ckpt
+last_checkpoint
+
+# TensorBoard and logs
+events.out.tfevents.*
+*.log
+
+# Large data and cache files
+*.npy
+*.npz
+*.zip
+*.tar
+*.tar.gz
+datasets/data/
+output/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
